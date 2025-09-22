@@ -65,12 +65,20 @@ pub async fn auth_handler(
         None => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
-    // Create JWT claims
+    // Create JWT claims with appropriate expiry based on key type
     let now = Utc::now().timestamp();
+    let exp = if params.expired.is_some() {
+        // If using expired parameter, make the JWT itself expired (1 hour ago)
+        now - 3600
+    } else {
+        // Normal case: 1 hour in the future
+        now + 3600
+    };
+
     let claims = Claims {
-        sub: "user123".to_string(), // Simple static user for now
+        sub: "user123".to_string(), // Simple static user for educational purposes
         iat: now,
-        exp: now + 3600, // 1 hour expiry
+        exp,
         iss: "jwks-server".to_string(),
     };
 
