@@ -3,24 +3,6 @@
 version = 4
 
 [[package]]
-name = "JWKS"
-version = "0.1.0"
-dependencies = [
- "axum",
- "base64",
- "chrono",
- "hyper",
- "jsonwebtoken",
- "rsa",
- "serde",
- "serde_json",
- "tokio",
- "tower",
- "tower-http",
- "uuid",
-]
-
-[[package]]
 name = "addr2line"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -556,6 +538,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "jwks"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64",
+ "chrono",
+ "hyper",
+ "jsonwebtoken",
+ "rand",
+ "rsa",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tower-http",
+ "uuid",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -834,6 +835,7 @@ version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
 dependencies = [
+ "libc",
  "rand_chacha",
  "rand_core",
 ]

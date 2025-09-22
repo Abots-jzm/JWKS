@@ -1,5 +1,5 @@
 [package]
-name = "JWKS"
+name = "jwks"
 version = "0.1.0"
 edition = "2024"
 
@@ -13,6 +13,7 @@ rsa = { version = "0.9", features = ["sha2"] }
 uuid = { version = "1.0", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 base64 = "0.22"
+rand = "0.8"
 
 [dev-dependencies]
 tower = { version = "0.5.2", features = ["util"] }
