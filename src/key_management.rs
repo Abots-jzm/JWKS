@@ -36,3 +36,58 @@ impl KeyPair {
         !self.is_expired()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsa::traits::PublicKeyParts;
+
+    #[test]
+    fn test_key_pair_generation() {
+        let key = KeyPair::new(24).expect("Failed to generate key pair");
+
+        assert!(!key.kid.is_empty());
+
+        assert!(key.is_valid());
+        assert!(!key.is_expired());
+
+        assert!(key.expires_at > Utc::now());
+    }
+
+    #[test]
+    fn test_expired_key_generation() {
+        let key = KeyPair::new(-1).expect("Failed to generate expired key pair");
+
+        assert!(key.is_expired());
+        assert!(!key.is_valid());
+
+        assert!(key.expires_at < Utc::now());
+    }
+
+    #[test]
+    fn test_key_expiry_validation() {
+        let valid_key = KeyPair::new(1).expect("Failed to generate key");
+        assert!(valid_key.is_valid());
+
+        let expired_key = KeyPair::new(-24).expect("Failed to generate expired key");
+        assert!(expired_key.is_expired());
+    }
+
+    #[test]
+    fn test_unique_key_ids() {
+        let key1 = KeyPair::new(24).expect("Failed to generate key 1");
+        let key2 = KeyPair::new(24).expect("Failed to generate key 2");
+
+        assert_ne!(key1.kid, key2.kid);
+    }
+
+    #[test]
+    fn test_key_components() {
+        let key = KeyPair::new(24).expect("Failed to generate key pair");
+
+        assert_eq!(key.public_key.size(), 2048 / 8); // 2048 bits = 256 bytes
+
+        assert!(!key.public_key.n().to_bytes_be().is_empty());
+        assert!(!key.public_key.e().to_bytes_be().is_empty());
+    }
+}

@@ -91,3 +91,117 @@ pub async fn auth_handler(
     let response = AuthResponse { token };
     Ok(Json(response))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::{create_app, initialize_keys};
+    use axum::{
+        Router,
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+
+    async fn get_test_app() -> Router {
+        let keys = initialize_keys().expect("Failed to initialize test keys");
+        let app_state = Arc::new(keys);
+        create_app(app_state)
+    }
+
+    #[tokio::test]
+    async fn test_jwks_endpoint() {
+        let app = get_test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/.well-known/jwks.json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body_str = std::str::from_utf8(&body).unwrap();
+
+        // Check that response contains JWKS structure
+        assert!(body_str.contains("\"keys\""));
+        assert!(body_str.contains("\"kty\""));
+        assert!(body_str.contains("\"RSA\""));
+    }
+
+    #[tokio::test]
+    async fn test_auth_endpoint() {
+        let app = get_test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/auth")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body_str = std::str::from_utf8(&body).unwrap();
+
+        assert!(body_str.contains("\"token\""));
+
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(body_str) {
+            if let Some(token) = json["token"].as_str() {
+                let parts: Vec<&str> = token.split('.').collect();
+                assert_eq!(parts.len(), 3);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_auth_endpoint_with_expired() {
+        let app = get_test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/auth?expired=true")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body_str = std::str::from_utf8(&body).unwrap();
+
+        assert!(body_str.contains("\"token\""));
+    }
+
+    #[tokio::test]
+    async fn test_alternative_jwks_endpoint() {
+        let app = get_test_app().await;
+
+        let response = app
+            .oneshot(Request::builder().uri("/jwks").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+}

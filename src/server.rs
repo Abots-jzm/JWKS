@@ -54,3 +54,41 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_initialize_keys() {
+        let keys = initialize_keys().expect("Failed to initialize keys");
+
+        // Should have exactly 2 keys
+        assert_eq!(keys.len(), 2);
+
+        // Should have one valid and one expired key
+        let valid_keys: Vec<_> = keys.iter().filter(|k| k.is_valid()).collect();
+        let expired_keys: Vec<_> = keys.iter().filter(|k| k.is_expired()).collect();
+
+        assert_eq!(valid_keys.len(), 1);
+        assert_eq!(expired_keys.len(), 1);
+    }
+
+    #[test]
+    fn test_create_app() {
+        let keys = initialize_keys().expect("Failed to initialize keys");
+        let app_state = Arc::new(keys);
+
+        // This should not panic
+        let _app = create_app(app_state);
+
+        assert!(true);
+    }
+
+    #[test]
+    fn test_key_uniqueness() {
+        let keys = initialize_keys().expect("Failed to initialize keys");
+
+        assert_ne!(keys[0].kid, keys[1].kid);
+    }
+}
