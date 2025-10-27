@@ -4,7 +4,7 @@
 use chrono::Utc;
 use rand::rngs::OsRng;
 use rsa::{RsaPrivateKey, pkcs1::EncodeRsaPrivateKey};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension};
 
 const DB_FILE: &str = "totally_not_my_privateKeys.db";
 
@@ -28,8 +28,8 @@ pub fn init_db_and_seed() -> Result<(), Box<dyn std::error::Error>> {
     // Check presence of at least one expired key (exp <= now)
     let expired_count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM keys WHERE exp <= ?1",
-            params![now],
+            "SELECT COUNT(*) FROM keys WHERE exp <= ?",
+            rusqlite::params![now],
             |row| row.get(0),
         )
         .unwrap_or(0);
@@ -38,16 +38,16 @@ pub fn init_db_and_seed() -> Result<(), Box<dyn std::error::Error>> {
         let pem = generate_rsa_pkcs1_pem()?;
         let exp = now - 1; // already expired
         conn.execute(
-            "INSERT INTO keys (key, exp) VALUES (?1, ?2)",
-            params![pem.as_bytes(), exp],
+            "INSERT INTO keys (key, exp) VALUES (?, ?)",
+            rusqlite::params![pem.as_bytes(), exp],
         )?;
     }
 
     // Check presence of at least one valid key (exp > now)
     let valid_count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM keys WHERE exp > ?1",
-            params![now],
+            "SELECT COUNT(*) FROM keys WHERE exp > ?",
+            rusqlite::params![now],
             |row| row.get(0),
         )
         .unwrap_or(0);
@@ -56,8 +56,8 @@ pub fn init_db_and_seed() -> Result<(), Box<dyn std::error::Error>> {
         let pem = generate_rsa_pkcs1_pem()?;
         let exp = now + 3600; // valid for 1 hour
         conn.execute(
-            "INSERT INTO keys (key, exp) VALUES (?1, ?2)",
-            params![pem.as_bytes(), exp],
+            "INSERT INTO keys (key, exp) VALUES (?, ?)",
+            rusqlite::params![pem.as_bytes(), exp],
         )?;
     }
 
@@ -84,8 +84,8 @@ pub fn select_one_key(want_expired: bool) -> Result<Option<(i64, Vec<u8>, i64)>,
 
     if want_expired {
         conn.query_row(
-            "SELECT kid, key, exp FROM keys WHERE exp <= ?1 ORDER BY kid LIMIT 1",
-            params![now],
+            "SELECT kid, key, exp FROM keys WHERE exp <= ? ORDER BY kid LIMIT 1",
+            rusqlite::params![now],
             |row| {
                 let kid: i64 = row.get(0)?;
                 let key: Vec<u8> = row.get(1)?;
@@ -96,8 +96,8 @@ pub fn select_one_key(want_expired: bool) -> Result<Option<(i64, Vec<u8>, i64)>,
         .optional()
     } else {
         conn.query_row(
-            "SELECT kid, key, exp FROM keys WHERE exp > ?1 ORDER BY kid LIMIT 1",
-            params![now],
+            "SELECT kid, key, exp FROM keys WHERE exp > ? ORDER BY kid LIMIT 1",
+            rusqlite::params![now],
             |row| {
                 let kid: i64 = row.get(0)?;
                 let key: Vec<u8> = row.get(1)?;
@@ -113,8 +113,8 @@ pub fn select_one_key(want_expired: bool) -> Result<Option<(i64, Vec<u8>, i64)>,
 pub fn select_all_valid_keys() -> Result<Vec<(i64, Vec<u8>, i64)>, rusqlite::Error> {
     let now = Utc::now().timestamp();
     let conn = open_connection()?;
-    let mut stmt = conn.prepare("SELECT kid, key, exp FROM keys WHERE exp > ?1 ORDER BY kid")?;
-    let rows = stmt.query_map(params![now], |row| {
+    let mut stmt = conn.prepare("SELECT kid, key, exp FROM keys WHERE exp > ? ORDER BY kid")?;
+    let rows = stmt.query_map(rusqlite::params![now], |row| {
         let kid: i64 = row.get(0)?;
         let key: Vec<u8> = row.get(1)?;
         let exp: i64 = row.get(2)?;
