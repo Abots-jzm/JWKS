@@ -8,6 +8,7 @@ use axum::{
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
+use crate::db;
 use crate::endpoints::{AppState, auth_handler, jwks_handler};
 use crate::types::KeyPair;
 
@@ -37,6 +38,9 @@ pub fn initialize_keys() -> Result<Vec<KeyPair>, Box<dyn std::error::Error>> {
 }
 
 pub async fn start_server() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize the SQLite database and seed keys so external clients can find them
+    db::init_db_and_seed()?;
+
     let keys = initialize_keys()?;
     let app_state = Arc::new(keys);
 
