@@ -3,6 +3,7 @@
 
 use chrono::{Duration, Utc};
 use rand::rngs::OsRng;
+use rsa::pkcs1::{DecodeRsaPrivateKey, EncodeRsaPrivateKey};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use uuid::Uuid;
 
@@ -35,6 +36,18 @@ impl KeyPair {
     pub fn is_valid(&self) -> bool {
         !self.is_expired()
     }
+}
+
+/// Serialize an RSA private key to PKCS#1 PEM (LF line endings) for DB storage.
+pub fn private_key_to_pkcs1_pem(key: &RsaPrivateKey) -> Result<String, Box<dyn std::error::Error>> {
+    let pem = key.to_pkcs1_pem(rsa::pkcs1::LineEnding::LF)?;
+    Ok(pem.to_string())
+}
+
+/// Deserialize an RSA private key from PKCS#1 PEM text read from the DB.
+pub fn private_key_from_pkcs1_pem(pem: &str) -> Result<RsaPrivateKey, Box<dyn std::error::Error>> {
+    let key = RsaPrivateKey::from_pkcs1_pem(pem)?;
+    Ok(key)
 }
 
 #[cfg(test)]
@@ -89,5 +102,26 @@ mod tests {
 
         assert!(!key.public_key.n().to_bytes_be().is_empty());
         assert!(!key.public_key.e().to_bytes_be().is_empty());
+    }
+
+    #[test]
+    fn test_pkcs1_pem_roundtrip() {
+        let key = KeyPair::new(1).expect("Failed to generate key pair");
+        let pem = private_key_to_pkcs1_pem(&key.private_key).expect("to pem failed");
+        let parsed = private_key_from_pkcs1_pem(&pem).expect("from pem failed");
+
+        // Compare modulus to ensure same key material
+        assert_eq!(
+            rsa::RsaPublicKey::from(&parsed).n().to_bytes_be(),
+            key.public_key.n().to_bytes_be()
+        );
+    }
+
+    #[test]
+    fn test_pkcs1_pem_invalid_input() {
+        let bad =
+            "-----BEGIN RSA PRIVATE KEY-----\nnot a real key\n-----END RSA PRIVATE KEY-----\n";
+        let err = private_key_from_pkcs1_pem(bad).err();
+        assert!(err.is_some());
     }
 }

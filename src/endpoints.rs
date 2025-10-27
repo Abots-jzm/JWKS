@@ -1,5 +1,5 @@
 // This project was developed with assistance from GitHub Copilot
-// JWKS endpoint implementation
+// JWKS endpoint implementation (DB-backed)
 
 use axum::{
     extract::{Query, State},
@@ -9,101 +9,95 @@ use axum::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
-use rsa::pkcs8::EncodePrivateKey;
 use rsa::traits::PublicKeyParts;
 use std::sync::Arc;
 
-use crate::types::{AuthQuery, AuthResponse, Claims, JsonWebKey, JwksResponse, KeyPair};
+use crate::db;
+use crate::key_management::private_key_from_pkcs1_pem;
+use crate::types::{AuthQuery, AuthResponse, Claims, JsonWebKey, JwksResponse};
 
-/// Application state containing key pairs
-pub type AppState = Arc<Vec<KeyPair>>;
+/// Application state (placeholder; DB is global file). Using unit state keeps Axum happy.
+pub type AppState = Arc<()>;
 
 /// JWKS endpoint handler - serves public keys in JWKS format
 /// Only returns keys that have not expired
-pub async fn jwks_handler(State(keys): State<AppState>) -> Result<Json<JwksResponse>, StatusCode> {
-    let valid_keys: Vec<JsonWebKey> = keys
-        .iter()
-        .filter(|key| key.is_valid())
-        .map(|key| {
-            let n = key.public_key.n();
-            let e = key.public_key.e();
+pub async fn jwks_handler(State(_state): State<AppState>) -> Result<Json<JwksResponse>, StatusCode> {
+    // Perform DB work off the main async thread
+    let rows = tokio::task::spawn_blocking(|| db::select_all_valid_keys())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-            let n_bytes = n.to_bytes_be();
-            let e_bytes = e.to_bytes_be();
-            let n_b64 = URL_SAFE_NO_PAD.encode(&n_bytes);
-            let e_b64 = URL_SAFE_NO_PAD.encode(&e_bytes);
+    let mut jwks = Vec::new();
+    for (kid_i64, pem_bytes, _exp) in rows {
+        let pem_str = match String::from_utf8(pem_bytes) {
+            Ok(s) => s,
+            Err(_) => continue, // skip malformed rows safely
+        };
+        // Parse private key to derive public parameters
+        let private = private_key_from_pkcs1_pem(&pem_str)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let public = rsa::RsaPublicKey::from(&private);
 
-            JsonWebKey {
-                kty: "RSA".to_string(),
-                kid: key.kid.clone(),
-                key_use: "sig".to_string(),
-                alg: "RS256".to_string(),
-                n: n_b64,
-                e: e_b64,
-            }
-        })
-        .collect();
+        let n_b64 = URL_SAFE_NO_PAD.encode(public.n().to_bytes_be());
+        let e_b64 = URL_SAFE_NO_PAD.encode(public.e().to_bytes_be());
 
-    let response = JwksResponse { keys: valid_keys };
-    Ok(Json(response))
+        jwks.push(JsonWebKey {
+            kty: "RSA".to_string(),
+            kid: kid_i64.to_string(),
+            key_use: "sig".to_string(),
+            alg: "RS256".to_string(),
+            n: n_b64,
+            e: e_b64,
+        });
+    }
+
+    Ok(Json(JwksResponse { keys: jwks }))
 }
 
 /// Auth endpoint handler - issues JWTs for authentication
 /// Supports 'expired' query parameter to use expired keys for testing
 pub async fn auth_handler(
-    State(keys): State<AppState>,
+    State(_state): State<AppState>,
     Query(params): Query<AuthQuery>,
 ) -> Result<Json<AuthResponse>, StatusCode> {
-    let key_to_use = if params.expired.is_some() {
-        keys.iter().find(|k| k.is_expired())
-    } else {
-        keys.iter().find(|k| k.is_valid())
-    };
+    // Choose expired or valid key from DB
+    let want_expired = params.expired.is_some();
+    let row = tokio::task::spawn_blocking(move || db::select_one_key(want_expired))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let key = match key_to_use {
-        Some(k) => k,
-        None => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-    };
+    let (kid_i64, pem_bytes, _exp) = row;
+    let pem_str = String::from_utf8(pem_bytes).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Create JWT claims with appropriate expiry based on key type
+    // Build claims (token itself valid for 1 hour regardless of key expiry)
     let now = Utc::now().timestamp();
-    let exp = if params.expired.is_some() {
-        // If using expired parameter, make the JWT itself expired (1 hour ago)
-        now - 3600
-    } else {
-        // Normal case: 1 hour in the future
-        now + 3600
-    };
-
+    let exp = now + 3600;
     let claims = Claims {
-        sub: "user123".to_string(), // Simple static user for educational purposes
+        sub: "userABC".to_string(),
         iat: now,
         exp,
         iss: "jwks-server".to_string(),
     };
 
     let mut header = Header::new(Algorithm::RS256);
-    header.kid = Some(key.kid.clone());
+    header.kid = Some(kid_i64.to_string());
 
-    // Convert private key to PEM format for jsonwebtoken
-    let private_key_pem = key
-        .private_key
-        .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
+    // Use PKCS#1 PEM directly for jsonwebtoken
+    let encoding_key = EncodingKey::from_rsa_pem(pem_str.as_bytes())
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let encoding_key = EncodingKey::from_rsa_pem(private_key_pem.as_bytes())
+    let token = encode(&header, &claims, &encoding_key)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let token =
-        encode(&header, &claims, &encoding_key).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let response = AuthResponse { token };
-    Ok(Json(response))
+    Ok(Json(AuthResponse { token }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::{create_app, initialize_keys};
+    use crate::server::create_app;
     use axum::{
         Router,
         body::Body,
@@ -112,8 +106,9 @@ mod tests {
     use tower::ServiceExt;
 
     async fn get_test_app() -> Router {
-        let keys = initialize_keys().expect("Failed to initialize test keys");
-        let app_state = Arc::new(keys);
+        // Ensure DB exists and seeded
+        crate::db::init_db_and_seed().expect("db init failed");
+        let app_state = Arc::new(());
         create_app(app_state)
     }
 
