@@ -25,7 +25,7 @@ pub async fn jwks_handler(
     State(_state): State<AppState>,
 ) -> Result<Json<JwksResponse>, StatusCode> {
     // Perform DB work off the main async thread
-    let rows = tokio::task::spawn_blocking(|| db::select_all_valid_keys())
+    let rows = tokio::task::spawn_blocking(db::select_all_valid_keys)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

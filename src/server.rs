@@ -48,9 +48,7 @@ mod tests {
     fn test_create_app() {
         let app_state = Arc::new(());
 
-        // This should not panic
-        let _app = create_app(app_state);
-
-        assert!(true);
+    // This should not panic
+    let _app = create_app(app_state);
     }
 }
