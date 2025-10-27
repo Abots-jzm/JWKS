@@ -176,7 +176,10 @@ async fn test_jwks_filters_expired_keys() {
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(body_str) {
         if let Some(keys_array) = json["keys"].as_array() {
             // Should contain at least one valid key; expired keys are filtered out
-                assert!(!keys_array.is_empty(), "JWKS should contain at least one valid key");
+            assert!(
+                !keys_array.is_empty(),
+                "JWKS should contain at least one valid key"
+            );
         } else {
             panic!("Keys array not found in JWKS response");
         }
