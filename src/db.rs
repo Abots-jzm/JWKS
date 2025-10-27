@@ -127,3 +127,52 @@ pub fn select_all_valid_keys() -> Result<Vec<(i64, Vec<u8>, i64)>, rusqlite::Err
     }
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_init_db_and_seed_creates_file_and_table() {
+        // Initialize (idempotent)
+        init_db_and_seed().expect("db init failed");
+
+        // DB file exists
+        assert!(Path::new(super::DB_FILE).exists(), "DB file should exist");
+
+        // Table exists
+        let conn = open_connection().expect("open failed");
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='keys'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "keys table should exist");
+    }
+
+    #[test]
+    fn test_select_one_key_valid_and_expired() {
+        init_db_and_seed().expect("db init failed");
+
+        let valid = select_one_key(false).expect("query failed");
+        assert!(valid.is_some(), "should have at least one valid key");
+
+        let expired = select_one_key(true).expect("query failed");
+        assert!(expired.is_some(), "should have at least one expired key");
+    }
+
+    #[test]
+    fn test_select_all_valid_keys_nonempty_and_future_exp() {
+        init_db_and_seed().expect("db init failed");
+        let rows = select_all_valid_keys().expect("query failed");
+        assert!(!rows.is_empty(), "should return at least one valid key");
+
+        let now = Utc::now().timestamp();
+        for (_kid, _pem, exp) in rows {
+            assert!(exp > now, "valid keys must have exp in the future");
+        }
+    }
+}

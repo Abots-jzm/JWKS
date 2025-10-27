@@ -21,7 +21,9 @@ pub type AppState = Arc<()>;
 
 /// JWKS endpoint handler - serves public keys in JWKS format
 /// Only returns keys that have not expired
-pub async fn jwks_handler(State(_state): State<AppState>) -> Result<Json<JwksResponse>, StatusCode> {
+pub async fn jwks_handler(
+    State(_state): State<AppState>,
+) -> Result<Json<JwksResponse>, StatusCode> {
     // Perform DB work off the main async thread
     let rows = tokio::task::spawn_blocking(|| db::select_all_valid_keys())
         .await
@@ -35,8 +37,8 @@ pub async fn jwks_handler(State(_state): State<AppState>) -> Result<Json<JwksRes
             Err(_) => continue, // skip malformed rows safely
         };
         // Parse private key to derive public parameters
-        let private = private_key_from_pkcs1_pem(&pem_str)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let private =
+            private_key_from_pkcs1_pem(&pem_str).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let public = rsa::RsaPublicKey::from(&private);
 
         let n_b64 = URL_SAFE_NO_PAD.encode(public.n().to_bytes_be());
@@ -88,8 +90,8 @@ pub async fn auth_handler(
     // Use PKCS#1 PEM directly for jsonwebtoken
     let encoding_key = EncodingKey::from_rsa_pem(pem_str.as_bytes())
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let token = encode(&header, &claims, &encoding_key)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let token =
+        encode(&header, &claims, &encoding_key).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(AuthResponse { token }))
 }
